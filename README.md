@@ -1,0 +1,1 @@
+Karma Swap, Swap discounts based on you wallet Credit Score.
