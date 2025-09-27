@@ -15,8 +15,9 @@ CACHE_DURATION_SECONDS = 4 * 60 * 60 # Cache data for 4 hours
 
 # --- Configuration: The Graph API Endpoints ---
 # We query the Arbitrum gateway, which serves data for multiple chains including Ethereum Mainnet.
-AAVE_V2_SUBGRAPH_URL = f"https://gateway-arbitrum.network.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/5tUNTMY2323yV22u9mKGAo5p75bNgkFqw4BwAMb2fB8Y"
-UNISWAP_V3_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/7SP2t3PQd7LX19riCfwX5znhFdULjwRofQZtRZMJ8iW8" #uniswap v4 - 0x47eD604d48914fB4bf99c4f629aC34be10Da2cb1
+AAVE_V3_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/GQFbb95cE6d8mV989mL5figjaGaKCQB3xqYrr1bRyXqF" #0xa88d48a133eddcc0313f86bbd18ac4f18d670378
+UNISWAP_V3_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV" #uniswap v3 - 0xadc8aaddf5dcf81366fcc0212c154dfbfde1ed13
+UNISWAP_V4_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/7SP2t3PQd7LX19riCfwX5znhFdULjwRofQZtRZMJ8iW8" #uniswap v4 - 0x47eD604d48914fB4bf99c4f629aC34be10Da2cb1
 SNAPSHOT_SUBGRAPH_URL = f"https://hub.snapshot.org/graphql" #0xc65e884ac8aba83936499d327299bb9313b9f005
 ETHERSCAN_API_URL = "https://api.etherscan.io/api"
 
@@ -27,7 +28,9 @@ TORNADO_CASH_ROUTER = "0x722122df12d4e14e13ac3b6895a86e84145b6967" #0xd8dA6BF269
 
 AAVE_LIQUIDATIONS_QUERY = """
 query ($user_address: String!) {
-  liquidationCallHistoryEntities(where: {user: $user_address}) { id }
+  liquidationCalls(where: {user: $user_address}) {
+    id
+  }
 }
 """
 
@@ -41,7 +44,13 @@ query ($user_address: String!) {
 }
 """
 
-# New Query: To get governance votes from Snapshot
+UNISWAP_LP_QUERY = """
+query ($user_address: String!) {
+  mints(where: {origin: $user_address}, first: 500) { id }
+}
+"""
+
+# To get governance votes from Snapshot
 
 SNAPSHOT_VOTES_QUERY = """
 query ($user_address: String!) {
@@ -205,22 +214,22 @@ def detect_rug_pulls(wallet_address, normal_txs, token_txs):
 
 def get_aave_liquidations(wallet_address):
     variables = {'user_address': wallet_address.lower()}
-    data = query_the_graph(AAVE_V2_SUBGRAPH_URL, AAVE_LIQUIDATIONS_QUERY, variables)
-    return len(data['data']['liquidationCallHistoryEntities']) if data and 'data' in data else 0
+    data = query_the_graph(AAVE_V3_SUBGRAPH_URL, AAVE_LIQUIDATIONS_QUERY, variables)
+    return len(data['data']['liquidationCalls']) if data and 'data' in data else 0
 
 def analyze_uniswap_swaps(wallet_address):
     variables = {'user_address': wallet_address.lower()}
-    data = query_the_graph(UNISWAP_V3_SUBGRAPH_URL, UNISWAP_SWAPS_QUERY, variables)
+    data = query_the_graph(UNISWAP_V4_SUBGRAPH_URL, UNISWAP_SWAPS_QUERY, variables)
     if not (data and 'data' in data and 'swaps' in data['data']):
         return 0, 0
     
     swaps = data['data']['swaps']
     return len(swaps)
 
-# def get_uniswap_lp_count(wallet_address):
-#     variables = {'user_address': wallet_address.lower()}
-#     data = query_the_graph(UNISWAP_V3_SUBGRAPH_URL, UNISWAP_LP_QUERY, variables)
-#     return len(data['data']['mints']) if data and 'data' in data else 0
+def get_uniswap_lp_count(wallet_address):
+    variables = {'user_address': wallet_address.lower()}
+    data = query_the_graph(UNISWAP_V3_SUBGRAPH_URL, UNISWAP_LP_QUERY, variables)
+    return len(data['data']['mints']) if data and 'data' in data else 0
 
 def get_snapshot_votes_count(wallet_address):
     variables = {'user_address': wallet_address.lower()}
@@ -247,7 +256,7 @@ def calculate_reputation_score(wallet_address):
     # Fetch data from The Graph
     uniswap_tx_count = analyze_uniswap_swaps(wallet_address)
     liquidation_count = get_aave_liquidations(wallet_address)
-    # lp_count = get_uniswap_lp_count(wallet_address)
+    lp_count = get_uniswap_lp_count(wallet_address)
     vote_count = get_snapshot_votes_count(wallet_address)
     print("✅ Data collection complete.")
 
@@ -264,9 +273,9 @@ def calculate_reputation_score(wallet_address):
     base_score += uniswap_score
     score_log.append(f"[+] Uniswap Swaps ({uniswap_tx_count} swaps): +{uniswap_score} points")
     
-    # lp_score = min(15, lp_count * 3)
-    # base_score += lp_score
-    # score_log.append(f"[+] Uniswap LP Actions ({lp_count}): +{lp_score} points")
+    lp_score = min(15, lp_count * 3)
+    base_score += lp_score
+    score_log.append(f"[+] Uniswap LP Actions ({lp_count}): +{lp_score} points")
 
     vote_score = min(15, vote_count * 2)
     base_score += vote_score
