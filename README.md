@@ -69,12 +69,12 @@ The magic happens in **`beforeSwap`** and **`afterSwap`** hooks in Uniswap v4.
 
 ## Architecture Deep-Dive
 **Step 1: Data Collection Layer (The Detective Work)**  
-- **Who**: The Graph Protocol + Custom Indexers.  
-- **What**: Aggregate wallet behavior from 15+ blockchains.  
+- **Who**: The Graph + Custom Indexers + Etherscan APIs.  
+- **What**: Aggregate wallet behavior from different blockchains.  
 
 **Step 2: Analysis & Scoring Layer**  
 - **Who**: Proprietary inference engine.  
-- **What**: Real-time Karma Score computed & fed into Reputation Oracle.  
+- **What**: Real-time Karma Score computed & fed into Reputation Script.  
 
 ---
 
