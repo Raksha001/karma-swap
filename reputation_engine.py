@@ -115,7 +115,7 @@ def get_all_etherscan_transactions(wallet_address):
     if cached_data is not None:
         return cached_data
 
-    print("Fetching full transaction history from Etherscan (this may take a moment)...")
+    print("Fetching full ETH transaction history from Etherscan (this may take a moment)...")
     all_transactions = []
     page = 1
     while True:
@@ -138,6 +138,44 @@ def get_all_etherscan_transactions(wallet_address):
                 break
         except requests.exceptions.RequestException as e:
             print(f"Error fetching wallet transactions from Etherscan: {e}")
+            return None
+
+    if all_transactions:
+        _handle_cache_write(cache_path, all_transactions)
+    
+    return all_transactions
+
+def get_all_bscscan_transactions(wallet_address):
+    """Fetches all normal transactions for a wallet from BscScan, with caching."""
+    cache_path = os.path.join(CACHE_DIR, f"{wallet_address.lower()}_bscscan_txs.json")
+    
+    cached_data = _handle_cache_read(cache_path)
+    if cached_data is not None:
+        return cached_data
+
+    print("Fetching full BSC transaction history from BscScan (this may take a moment)...")
+    all_transactions = []
+    page = 1
+    while True:
+        params = {
+            "module": "account", "action": "txlist", "address": wallet_address,
+            "startblock": 0, "endblock": 99999999, "page": page, "offset": 1000,
+            "sort": "asc", "apikey": BSCSCAN_API_KEY
+        }
+        try:
+            response = requests.get(BSCSCAN_API_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+            if data['status'] == '1' and data.get('result'):
+                all_transactions.extend(data['result'])
+                if len(data['result']) < 1000:
+                    break # Last page
+                page += 1
+                time.sleep(0.2) # Respect BscScan rate limits
+            else:
+                break
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching wallet transactions from BscScan: {e}")
             return None
 
     if all_transactions:
@@ -185,11 +223,22 @@ def get_all_token_transfers(wallet_address):
 
 # --- Data Analysis Functions ---
 
-def get_wallet_age_from_tx_list(transactions):
-    if not transactions: return 0
-    first_tx_timestamp = int(transactions[0]['timeStamp'])
-    first_tx_date = datetime.datetime.fromtimestamp(first_tx_timestamp)
+def get_wallet_age_from_tx_lists(eth_txs, bsc_txs):
+    first_eth_ts = int(eth_txs[0]['timeStamp']) if eth_txs else None
+    first_bsc_ts = int(bsc_txs[0]['timeStamp']) if bsc_txs else None
+
+    if not first_eth_ts and not first_bsc_ts: return 0
+    
+    first_ts = min(ts for ts in [first_eth_ts, first_bsc_ts] if ts is not None)
+    
+    first_tx_date = datetime.datetime.fromtimestamp(first_ts)
     return (datetime.datetime.now() - first_tx_date).days
+
+def calculate_native_volume(transactions, wallet_address):
+    """Calculates the total outbound volume of native currency (ETH or BNB)."""
+    if not transactions: return 0
+    total_volume_wei = sum(int(tx['value']) for tx in transactions if tx['from'].lower() == wallet_address.lower() and int(tx.get('value', 0)) > 0)
+    return total_volume_wei / 1e18 # Convert from wei to ETH/BNB
 
 def check_tornado_interaction_from_tx_list(transactions):
     if not transactions: return False
@@ -287,24 +336,25 @@ def calculate_reputation_score(wallet_address):
 
     # --- 1. Data Collection ---
     print("Fetching data from on-chain sources (using cache where possible)...")
-    all_tx = get_all_etherscan_transactions(wallet_address)
-    all_token_tx = get_all_token_transfers(wallet_address)
+    eth_txs = get_all_etherscan_transactions(wallet_address)
+    bsc_txs = get_all_bscscan_transactions(wallet_address)
+    eth_token_txs = get_all_token_transfers(wallet_address)
     
-    # Analyze data from Etherscan calls
-    wallet_age_days = get_wallet_age_from_tx_list(all_tx)
-    tornado_interaction = check_tornado_interaction_from_tx_list(all_tx)
-    scam_interaction = check_scam_interaction_from_tx_list(all_tx)
-    failed_tx_count, failed_tx_rate = get_failed_tx_rate_from_tx_list(all_tx)
-    rug_pull_events = detect_rug_pulls(wallet_address, all_tx, all_token_tx)
+    # Analyze data from Etherscan/BscScan calls
+    wallet_age_days = get_wallet_age_from_tx_lists(eth_txs, bsc_txs)
+    eth_volume = calculate_native_volume(eth_txs, wallet_address)
+    bnb_volume = calculate_native_volume(bsc_txs, wallet_address)
+    tornado_interaction = check_tornado_interaction_from_tx_list(eth_txs)
+    scam_interaction = check_scam_interaction_from_tx_list(eth_txs)
+    failed_tx_count, failed_tx_rate = get_failed_tx_rate_from_tx_list(eth_txs)
+    rug_pull_events = detect_rug_pulls(wallet_address, eth_txs, eth_token_txs)
 
     # Fetch data from The Graph
-    # uniswap_tx_count, risky_token_swaps = analyze_uniswap_swaps(wallet_address)
     uniswap_tx_count = analyze_uniswap_swaps(wallet_address)
     liquidation_count = get_aave_liquidations(wallet_address)
     lp_count = get_uniswap_lp_count(wallet_address)
     vote_count = get_snapshot_votes_count(wallet_address)
     ens_count = get_ens_domain_count(wallet_address)
-
     print("✅ Data collection complete.")
 
     # --- 2. Scoring Logic ---
@@ -314,7 +364,11 @@ def calculate_reputation_score(wallet_address):
     # --- Positive Factors ---
     age_score = min(20, wallet_age_days // 30)
     base_score += age_score
-    score_log.append(f"[+] Wallet Age ({wallet_age_days} days): +{age_score} points")
+    score_log.append(f"[+] Wallet Age ({wallet_age_days} days, cross-chain): +{age_score} points")
+
+    volume_score = min(15, int(eth_volume / 10) + int(bnb_volume / 20)) # ETH is weighted more
+    base_score += volume_score
+    score_log.append(f"[+] Trading Volume ({eth_volume:.2f} ETH, {bnb_volume:.2f} BNB): +{volume_score} points")
 
     uniswap_score = min(20, uniswap_tx_count // 10)
     base_score += uniswap_score
@@ -348,18 +402,14 @@ def calculate_reputation_score(wallet_address):
         base_score -= scam_penalty
         score_log.append(f"[-] Interaction with Known Scam Address: -{scam_penalty} points (CRITICAL)")
 
-    
     failed_tx_penalty = 0
     if failed_tx_rate > 20: # Penalize if more than 20% of txns failed
         failed_tx_penalty = int(failed_tx_rate / 10) * 5
         base_score -= failed_tx_penalty
     score_log.append(f"[-] Failed TX Rate ({failed_tx_count} failed / {failed_tx_rate:.2f}%): -{failed_tx_penalty} points")
 
-    # risky_swap_penalty = min(20, risky_token_swaps * 2)
-    # base_score -= risky_swap_penalty
-    # score_log.append(f"[-] Swaps on new/risky tokens ({risky_token_swaps}): -{risky_swap_penalty} points")
     
-    rug_pull_penalty = rug_pull_events * 50 # Massive penalty for each rug pull
+    rug_pull_penalty = rug_pull_events * 50
     base_score -= rug_pull_penalty
     score_log.append(f"[-] Detected Rug Pulls ({rug_pull_events}): -{rug_pull_penalty} points (CRITICAL)")
 
@@ -377,25 +427,26 @@ def calculate_reputation_score(wallet_address):
 
 
 if __name__ == "__main__":
-    if not THE_GRAPH_API_KEY or not ETHERSCAN_API_KEY:
+    if not THE_GRAPH_API_KEY or not ETHERSCAN_API_KEY or not BSCSCAN_API_KEY:
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         print("!!! ERROR: API keys are missing in the script.")
-        print("!!! Please open reputation_engine.py and add your API keys.")
+        print("!!! Please open reputation_engine.py and add your API keys,")
+        print("!!! including the new BSCSCAN_API_KEY.")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         sys.exit(1)
 
     os.makedirs(CACHE_DIR, exist_ok=True)
 
     example_wallet = "0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045" # vitalik.eth
-    print("Welcome to the Reputation Scoring Engine!")
+    print("Welcome to the Comprehensive, Cross-Chain Reputation Scoring Engine!")
     print(f"You can try an example address like: {example_wallet}")
 
-    target_wallet = input("Enter the Ethereum wallet address to analyze: ").strip()
+    target_wallet = input("Enter the Ethereum/BSC wallet address to analyze: ").strip()
 
     if not target_wallet:
         print("No wallet address entered. Exiting.")
     elif not (target_wallet.startswith("0x") and len(target_wallet) == 42):
-        print("Invalid Ethereum address format. Please check and try again.")
+        print("Invalid wallet address format. Please check and try again.")
     else:
         reputation_score = calculate_reputation_score(target_wallet)
         print(f"\nFINAL OUTPUT => {target_wallet}:{reputation_score}\n")
