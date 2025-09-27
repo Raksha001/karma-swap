@@ -63,7 +63,7 @@ Final Fee = Base Fee * Volatility Multiplier - Karma Discount
 ## How It Works: Technical Flow
 The magic happens in **`beforeSwap`** and **`afterSwap`** hooks in Uniswap v4.
 
-<img width="506" height="688" alt="image" src="https://github.com/user-attachments/assets/5aadefe5-40fa-4ec3-bcbe-cde59a66b248" />
+<img width="3600" height="2400" alt="image" src="https://github.com/user-attachments/assets/801ae4d8-87ab-47d1-bd2e-08f2783bc595" />
 
 ---
 
