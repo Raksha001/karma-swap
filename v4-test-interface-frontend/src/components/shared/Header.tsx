@@ -3,6 +3,8 @@ import styled from 'styled-components'
 import { useWallet } from '../../hooks/useWallet'
 import { SUPPORTED_NETWORKS } from '../../constants/networks'
 import { NetworkDropdown } from './NetworkDropdown'
+import  ReputationDisplay  from './ReputationDisplay'
+
 
 // Define interface for navigation types
 export enum NavType {
@@ -223,6 +225,7 @@ const NetworkDropdownComponent = () => {
         )}
       </NetworkIndicator>
       
+      
       {/* <NetworkDropdown $isOpen={isNetworkDropdownOpen}>
         {SUPPORTED_NETWORKS.map((net) => (
           <NetworkOption 
@@ -290,6 +293,8 @@ export const Header: React.FC<HeaderProps> = ({ activeNav, onNavChange }) => {
           Pool
         </NavLink>
       </NavLinks>
+            <ReputationDisplay variant="compact" />
+
       
       <RightSection>
       <NetworkDropdown />
