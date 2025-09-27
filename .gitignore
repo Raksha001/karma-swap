@@ -5,12 +5,12 @@ v4-test-interface-frontend/node_modules
 v4-test-interface-frontend/.yarn
 v4-test-interface-frontend/src/definitions
 v4-test-interface-frontend/definitions
-# v4-test-interface-frontend/src/hooks
-# v4-test-interface-frontend/src/contexts
-# v4-test-interface-frontend/src/theme
-# v4-test-interface-frontend/src/types
-# v4-test-interface-frontend/src/components/CreatePool
-# v4-test-interface-frontend/src/components/shared/icons
-# v4-test-interface-frontend/src/components/Swap
-v4-test-interface-frontend/src
+v4-test-interface-frontend/src/hooks
+v4-test-interface-frontend/src/contexts
+v4-test-interface-frontend/src/theme
+v4-test-interface-frontend/src/types
+v4-test-interface-frontend/src/components/CreatePool
+v4-test-interface-frontend/src/components/shared/icons
+v4-test-interface-frontend/src/components/Swap
+# v4-test-interface-frontend/src
 
