@@ -19,11 +19,20 @@ AAVE_V3_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/su
 UNISWAP_V3_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/5zvR82QoaXYFyDEKLZ9t6v9adgnptxYpKpSbxtgVENFV" #uniswap v3 - 0xadc8aaddf5dcf81366fcc0212c154dfbfde1ed13
 UNISWAP_V4_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/7SP2t3PQd7LX19riCfwX5znhFdULjwRofQZtRZMJ8iW8" #uniswap v4 - 0x47eD604d48914fB4bf99c4f629aC34be10Da2cb1
 SNAPSHOT_SUBGRAPH_URL = f"https://hub.snapshot.org/graphql" #0xc65e884ac8aba83936499d327299bb9313b9f005
+ENS_SUBGRAPH_URL = f"https://gateway.thegraph.com/api/{THE_GRAPH_API_KEY}/subgraphs/id/5XqPmWe6gjyrJtFn9cLy237i4cWw2j9HcUJEXsP5qGtH" #0x2dba88cB3B435F99a3e58B6E0fE450e8f1a3F20F - skaret.eth
 ETHERSCAN_API_URL = "https://api.etherscan.io/api"
+BSCSCAN_API_URL = "https://api.etherscan.io/v2/api?chainid=56"
 
 # A known Tornado Cash router address for our negative check.
 TORNADO_CASH_ROUTER = "0x722122df12d4e14e13ac3b6895a86e84145b6967" #0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045
 
+# A curated list of known scam/phishing addresses for a critical penalty.
+# This would be a dynamic list in a production system.
+KNOWN_SCAM_ADDRESSES = {
+    "0x0000462df2438f205a26563a3952a81f3c31275f", # General Phishing Address #0x99E76232Fd3D42B64Ae3610a73294682B9bA2cF1
+    "0x6a2562c5a5934c855a72b3a16828527a23b3a2a1", # Gas Phishing
+    "0xb38e75e8c13689139f75b8e1a14a29a6e1331776", # Badger DAO Hack Exploiter
+}
 # --- GraphQL Queries ---
 
 AAVE_LIQUIDATIONS_QUERY = """
@@ -34,12 +43,16 @@ query ($user_address: String!) {
 }
 """
 
-# Query to get user's transaction (swap) history on Uniswap.
 UNISWAP_SWAPS_QUERY = """
 query ($user_address: String!) {
-  swaps(where: {origin: $user_address}, first: 1000) {
+  swaps(where: {origin: $user_address}, first: 1000, orderBy: timestamp, orderDirection: desc) {
     id
     timestamp
+    pool {
+      createdAtTimestamp
+    }
+    token0 { id }
+    token1 { id }
   }
 }
 """
@@ -50,20 +63,28 @@ query ($user_address: String!) {
 }
 """
 
-# To get governance votes from Snapshot
-
 SNAPSHOT_VOTES_QUERY = """
 query ($user_address: String!) {
   votes(where: {voter: $user_address}, first: 500) { id }
 }
 """
 
+ENS_OWNERSHIP_QUERY = """
+query ($user_address: String!) {
+  domains(where: {owner: $user_address}) { id }
+}
+"""
+
 def query_the_graph(endpoint, query, variables):
-    """
-    A helper function to send a POST request to a The Graph subgraph.
-    """
+    """A helper function to send a POST request to a The Graph subgraph."""
+    headers = {}
+    # Snapshot API doesn't require auth headers, just a direct POST
+    if "snapshot.org" not in endpoint:
+        # Standard The Graph gateway endpoints can be used directly if the key is in the URL
+        pass
+        
     try:
-        response = requests.post(endpoint, json={'query': query, 'variables': variables})
+        response = requests.post(endpoint, json={'query': query, 'variables': variables}, headers=headers)
         response.raise_for_status()
         return response.json()
     except requests.exceptions.RequestException as e:
@@ -107,7 +128,7 @@ def get_all_etherscan_transactions(wallet_address):
             response = requests.get(ETHERSCAN_API_URL, params=params)
             response.raise_for_status()
             data = response.json()
-            if data['status'] == '1' and data['result']:
+            if data['status'] == '1' and data.get('result'):
                 all_transactions.extend(data['result'])
                 if len(data['result']) < 1000:
                     break # Last page
@@ -145,7 +166,7 @@ def get_all_token_transfers(wallet_address):
             response = requests.get(ETHERSCAN_API_URL, params=params)
             response.raise_for_status()
             data = response.json()
-            if data['status'] == '1' and data['result']:
+            if data['status'] == '1' and data.get('result'):
                 all_transfers.extend(data['result'])
                 if len(data['result']) < 1000: break
                 page += 1
@@ -174,6 +195,13 @@ def check_tornado_interaction_from_tx_list(transactions):
     if not transactions: return False
     for tx in transactions:
         if tx.get('to', '').lower() == TORNADO_CASH_ROUTER:
+            return True
+    return False
+
+def check_scam_interaction_from_tx_list(transactions):
+    if not transactions: return False
+    for tx in transactions:
+        if tx.get('to', '').lower() in KNOWN_SCAM_ADDRESSES:
             return True
     return False
 
@@ -206,7 +234,6 @@ def detect_rug_pulls(wallet_address, normal_txs, token_txs):
                 if tx['from'].lower() == wallet_address_lower:
                     total_out += value
         
-        # If the wallet sent out more than 90% of the tokens it ever received/minted, flag it.
         if total_in > 0 and (total_out / total_in) > 0.90:
             rug_pull_count += 1
             
@@ -215,26 +242,42 @@ def detect_rug_pulls(wallet_address, normal_txs, token_txs):
 def get_aave_liquidations(wallet_address):
     variables = {'user_address': wallet_address.lower()}
     data = query_the_graph(AAVE_V3_SUBGRAPH_URL, AAVE_LIQUIDATIONS_QUERY, variables)
-    return len(data['data']['liquidationCalls']) if data and 'data' in data else 0
+    return len(data['data']['liquidationCalls']) if data and data.get('data') and data['data'].get('liquidationCalls') else 0
 
 def analyze_uniswap_swaps(wallet_address):
     variables = {'user_address': wallet_address.lower()}
-    data = query_the_graph(UNISWAP_V4_SUBGRAPH_URL, UNISWAP_SWAPS_QUERY, variables)
-    if not (data and 'data' in data and 'swaps' in data['data']):
-        return 0, 0
+    data = query_the_graph(UNISWAP_V3_SUBGRAPH_URL, UNISWAP_SWAPS_QUERY, variables)
+    if not (data and data.get('data') and data['data'].get('swaps')):
+        return 0
     
     swaps = data['data']['swaps']
+    # risky_swap_count = 0
+    # three_days_in_seconds = 3 * 24 * 60 * 60
+
+    # for swap in swaps:
+    #     # Check both token0 and token1 pools for creation time
+    #     pool_creation_time = int(swap['pool']['createdAtTimestamp'])
+    #     swap_time = int(swap['timestamp'])
+    #     if (swap_time - pool_creation_time) < three_days_in_seconds:
+    #         risky_swap_count += 1
+            
+    # return len(swaps), risky_swap_count
     return len(swaps)
 
 def get_uniswap_lp_count(wallet_address):
     variables = {'user_address': wallet_address.lower()}
     data = query_the_graph(UNISWAP_V3_SUBGRAPH_URL, UNISWAP_LP_QUERY, variables)
-    return len(data['data']['mints']) if data and 'data' in data else 0
+    return len(data['data']['mints']) if data and data.get('data') and data['data'].get('mints') else 0
 
 def get_snapshot_votes_count(wallet_address):
     variables = {'user_address': wallet_address.lower()}
     data = query_the_graph(SNAPSHOT_SUBGRAPH_URL, SNAPSHOT_VOTES_QUERY, variables)
-    return len(data['data']['votes']) if data and 'data' in data else 0
+    return len(data['data']['votes']) if data and data.get('data') and data['data'].get('votes') else 0
+
+def get_ens_domain_count(wallet_address):
+    variables = {'user_address': wallet_address.lower()}
+    data = query_the_graph(ENS_SUBGRAPH_URL, ENS_OWNERSHIP_QUERY, variables)
+    return len(data['data']['domains']) if data and data.get('data') and data['data'].get('domains') else 0
 
 
 def calculate_reputation_score(wallet_address):
@@ -243,21 +286,25 @@ def calculate_reputation_score(wallet_address):
     print("="*50)
 
     # --- 1. Data Collection ---
-    print("Fetching data from on-chain sources")
+    print("Fetching data from on-chain sources (using cache where possible)...")
     all_tx = get_all_etherscan_transactions(wallet_address)
     all_token_tx = get_all_token_transfers(wallet_address)
     
     # Analyze data from Etherscan calls
     wallet_age_days = get_wallet_age_from_tx_list(all_tx)
     tornado_interaction = check_tornado_interaction_from_tx_list(all_tx)
+    scam_interaction = check_scam_interaction_from_tx_list(all_tx)
     failed_tx_count, failed_tx_rate = get_failed_tx_rate_from_tx_list(all_tx)
     rug_pull_events = detect_rug_pulls(wallet_address, all_tx, all_token_tx)
 
     # Fetch data from The Graph
+    # uniswap_tx_count, risky_token_swaps = analyze_uniswap_swaps(wallet_address)
     uniswap_tx_count = analyze_uniswap_swaps(wallet_address)
     liquidation_count = get_aave_liquidations(wallet_address)
     lp_count = get_uniswap_lp_count(wallet_address)
     vote_count = get_snapshot_votes_count(wallet_address)
+    ens_count = get_ens_domain_count(wallet_address)
+
     print("✅ Data collection complete.")
 
     # --- 2. Scoring Logic ---
@@ -281,6 +328,11 @@ def calculate_reputation_score(wallet_address):
     base_score += vote_score
     score_log.append(f"[+] Snapshot Gov Votes ({vote_count}): +{vote_score} points")
 
+    if ens_count > 0:
+        ens_bonus = 15
+        base_score += ens_bonus
+        score_log.append(f"[+] ENS Domain Ownership ({ens_count}): +{ens_bonus} points")
+
     # --- Negative Factors ---
     liquidation_penalty = liquidation_count * 20
     base_score -= liquidation_penalty
@@ -290,14 +342,23 @@ def calculate_reputation_score(wallet_address):
         tornado_penalty = 40
         base_score -= tornado_penalty
         score_log.append(f"[-] Tornado Cash Interaction: -{tornado_penalty} points (Major Penalty)")
+
+    if scam_interaction:
+        scam_penalty = 60
+        base_score -= scam_penalty
+        score_log.append(f"[-] Interaction with Known Scam Address: -{scam_penalty} points (CRITICAL)")
+
     
     failed_tx_penalty = 0
     if failed_tx_rate > 20: # Penalize if more than 20% of txns failed
         failed_tx_penalty = int(failed_tx_rate / 10) * 5
         base_score -= failed_tx_penalty
     score_log.append(f"[-] Failed TX Rate ({failed_tx_count} failed / {failed_tx_rate:.2f}%): -{failed_tx_penalty} points")
+
+    # risky_swap_penalty = min(20, risky_token_swaps * 2)
+    # base_score -= risky_swap_penalty
+    # score_log.append(f"[-] Swaps on new/risky tokens ({risky_token_swaps}): -{risky_swap_penalty} points")
     
-    # --- New Negative Factor ---
     rug_pull_penalty = rug_pull_events * 50 # Massive penalty for each rug pull
     base_score -= rug_pull_penalty
     score_log.append(f"[-] Detected Rug Pulls ({rug_pull_events}): -{rug_pull_penalty} points (CRITICAL)")
