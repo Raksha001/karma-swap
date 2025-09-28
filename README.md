@@ -127,6 +127,9 @@ forge install
 cp .env.example .env
 Running Tests
 forge test -vvv
+
+for running scripts
+-> forge script scripts/DeployHook.s.sol:DeployCombinedFeeHookScript     --rpc-url $rpc-url     --private-key @PRIVATE_KEY     --broadcast     --verify    -vvvv
 ```
 
 ---
