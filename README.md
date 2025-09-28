@@ -68,6 +68,9 @@ The magic happens in **`beforeSwap`** and **`afterSwap`** hooks in Uniswap v4.
 ---
 
 ## Architecture Deep-Dive
+
+<img width="2450" height="1083" alt="image" src="https://github.com/user-attachments/assets/b50a3e8e-0e13-4b7e-af9e-f92d86e37bed" />
+
 **Step 1: Data Collection Layer (The Detective Work)**  
 - **Who**: The Graph + Custom Indexers + Etherscan APIs.  
 - **What**: Aggregate wallet behavior from different blockchains.  
