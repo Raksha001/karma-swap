@@ -130,8 +130,14 @@ forge test -vvv
 
 for running scripts
 -> forge script scripts/DeployHook.s.sol:DeployCombinedFeeHookScript     --rpc-url $rpc-url     --private-key @PRIVATE_KEY     --broadcast     --verify    -vvvv
-```
 
+for frontend,
+cd v4-test-interface-frontend
+
+yarn install && yarn start
+
+fill the API key values in reputationEngine file
+```
 ---
 
 ## The Road Ahead: Our Vision
