@@ -3,13 +3,3 @@ venv
 credit-score
 v4-test-interface-frontend/node_modules
 v4-test-interface-frontend/.yarn
-v4-test-interface-frontend/src/definitions
-v4-test-interface-frontend/definitions
-v4-test-interface-frontend/src/hooks
-v4-test-interface-frontend/src/contexts
-v4-test-interface-frontend/src/themes
-v4-test-interface-frontend/src/types
-# v4-test-interface-frontend/src/components
-# v4-test-interface-frontend/src/components/Swap
-# v4-test-interface-frontend/srcs
-
