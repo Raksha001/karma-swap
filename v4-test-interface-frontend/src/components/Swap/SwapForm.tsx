@@ -5,8 +5,6 @@ import { SwapSettings } from './SwapSettings'
 import { useV4Swap } from '../../hooks/useV4Swap'
 import { useWallet } from '../../hooks/useWallet'
 import { ArrowDown } from '../shared/icons'
-import { TestPoolDeployer } from './TestPoolDeployer'
-import { DeployedPoolsList, addDeployedPool, DeployedPool } from './DeployedPoolsList'
 
 const Container = styled.div`
   display: flex;
@@ -380,34 +378,6 @@ export function SwapForm() {
       isSwapping
     );
   }
-
-  const handlePoolDeployed = (pool: {
-    address: string;
-    poolId: string;
-    token0: any;
-    token1: any;
-    fee: number;
-    hookAddress: string;
-  }) => {
-    // Auto-fill the pool ID
-    updatePoolId(pool.poolId);
-    
-    // Auto-select tokens
-    updateTokenIn(pool.token0);
-    updateTokenOut(pool.token1);
-    
-    // Add to deployed pools
-    const newPool: DeployedPool = {
-      poolId: pool.poolId,
-      token0Symbol: pool.token0.symbol,
-      token1Symbol: pool.token1.symbol,
-      fee: pool.fee,
-      networkId: network?.id || 1,
-      networkName: network?.name || 'Ethereum',
-      timestamp: Date.now()
-    };
-    addDeployedPool(newPool);
-  }
   
   // Handle pool selection from the deployed pools list
   const handleSelectPool = (poolKey: PoolKey | string) => {
@@ -441,7 +411,7 @@ export function SwapForm() {
   return (
     <Container>
       <MainContent>
-        <TestPoolDeployer onPoolDeployed={handlePoolDeployed} />
+        {/* <TestPoolDeployer onPoolDeployed={handlePoolDeployed} /> */}
         
         <SwapContainer>
           <SwapHeader>
